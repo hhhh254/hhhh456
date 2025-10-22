@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>寻宝游戏</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; font-family: Arial, sans-serif; }
+        body { background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d); color:#fff; min-height:100vh; padding:20px; }
+        .container { max-width:1200px; margin:0 auto; padding:20px; }
+        header { text-align:center; margin-bottom:40px; padding:20px; background:rgba(0,0,0,0.3); border-radius:15px; }
+        h1 { font-size:2.2rem; }
+        .nav-tabs { display:flex; justify-content:center; margin-bottom:20px; gap:10px; }
+        .nav-tab { padding:10px 18px; background: rgba(255,255,255,0.08); border-radius:8px; cursor:pointer; }
+        .nav-tab.active { background: linear-gradient(90deg,#ff8a00,#e52e71); transform:translateY(-3px); }
+        .auth-page { display:flex; justify-content:center; align-items:center; min-height:50vh; }
+        .auth-container { background: rgba(0,0,0,0.4); border-radius:15px; padding:30px; width:100%; max-width:480px; }
+        label { font-weight:600; }
+        input, select { padding:10px; border-radius:8px; border:none; background:rgba(255,255,255,0.08); color:#fff; }
+        button { background: linear-gradient(90deg,#ff8a00,#e52e71); color:#fff; border:none; padding:10px 18px; border-radius:999px; cursor:pointer; }
+        button.secondary { background: rgba(255,255,255,0.12); }
+        .user-list { margin-top:16px; }
+        .user-item { display:flex; justify-content:space-between; align-items:center; padding:12px; background: rgba(255,255,255,0.04); border-radius:8px; margin-bottom:8px; cursor:pointer; }
+        .panorama { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:14px; margin-bottom:20px; }
+        .location { background: rgba(0,0,0,0.4); border-radius:12px; padding:18px; text-align:center; cursor:pointer; }
+        .location-icon { font-size:3rem; margin-bottom:8px; }
+        .location-page { background: rgba(0,0,0,0.45); border-radius:12px; padding:18px; }
+        .progress-bar { height:18px; background: rgba(255,255,255,0.12); border-radius:10px; overflow:hidden; }
+        .progress { height:100%; background: linear-gradient(90deg,#ff8a00,#e52e71); width:0%; transition: width .4s ease; }
+        .log-container { margin-top:12px; max-height:160px; overflow:auto; background: rgba(0,0,0,0.25); padding:10px; border-radius:8px; }
+        .user-profile, .ranking-page { background: rgba(0,0,0,0.45); border-radius:12px; padding:18px; }
+        .ranking-table { width:100%; border-collapse:collapse; margin-top:12px; }
+        .ranking-table th, .ranking-table td { padding:8px 10px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.06); }
+        .rank-badge { display:inline-block; width:28px; height:28px; border-radius:50%; background:linear-gradient(90deg,#ff8a00,#e52e71); text-align:center; line-height:28px; font-weight:700; }
+        .current-user-highlight { background: rgba(255,215,0,0.08); }
+        .music-control { position: fixed; bottom:20px; right:20px; background: rgba(0,0,0,0.6); border-radius:50%; width:50px; height:50px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+        .back-btn { background: rgba(0,0,0,0.5); color:#fff; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; margin-bottom:12px; }
+        @media (max-width:768px) { .panorama{grid-template-columns:1fr;} }
+    </style>
+</head>
+<body>
+<div id="app"></div>
+
+<!-- 为不同页面设置不同的背景音乐 -->
+<audio id="homeMusic" loop>
+  <source src="home-music.mp3" type="audio/mpeg">
+  您的浏览器不支持音频元素。
+</audio>
+
+<audio id="libraryMusic" loop>
+  <source src="library-music.mp3" type="audio/mpeg">
+  您的浏览器不支持音频元素。
+</audio>
+
+<audio id="templeMusic" loop>
+  <source src="temple-music.mp3" type="audio/mpeg">
+  您的浏览器不支持音频元素。
+</audio>
+
+<audio id="forestMusic" loop>
+  <source src="forest-music.mp3" type="audio/mpeg">
+  您的浏览器不支持音频元素。
+</audio>
+
+<audio id="caveMusic" loop>
+  <source src="cave-music.mp3" type="audio/mpeg">
+  您的浏览器不支持音频元素。
+</audio>
+
+<script>
+// ------------- 全局单例游戏状态
+const { createApp, reactive, ref, computed, onMounted, watch } = Vue;
+
+const LOCAL_KEY = 'treasureGameState_v2';
+
+function createGameStateSingleton() {
+    const state = reactive({
+        currentPage: 'login',
+        musicEnabled: false,
+        currentUser: null,
+        users: [],
+        library: { progress: 0, currentStep: 0, completed: false, logs: [] },
+        temple: { progress: 0, currentStep: 0, completed: false, logs: [] },
+        forest: { progress: 0, currentStep: 0, completed: false, logs: [] },
+        cave: { progress: 0, currentStep: 0, completed: false, logs: [] }
+    });
+
+    // 移除保存状态功能
+    const saveState = () => {
+        // 不保存任何状态
+        return;
+    };
+
+    // 移除加载状态功能
+    const loadState = () => {
+        // 不加载任何状态，每次都从初始状态开始
+        return;
+    };
+
+    const registerUser = (userData) => {
+        const newUser = {
+            id: Date.now().toString() + Math.floor(Math.random()*1000),
+            name: userData.name || '游客' + Math.floor(Math.random()*1000),
+            level: userData.level || '新手',
+            joinDate: new Date().toISOString(),
+            lastActive: new Date().toISOString(),
+            progress: {
+                library: { progress: 0, currentStep: 0, completed: false },
+                temple: { progress: 0, currentStep: 0, completed: false },
+                forest: { progress: 0, currentStep: 0, completed: false },
+                cave: { progress: 0, currentStep: 0, completed: false }
+            },
+            totalScore: 0
+        };
+        state.users.push(newUser);
+        return newUser;
+    };
+
+    const loginUser = (userId) => {
+        const user = state.users.find(u => u.id === userId);
+        if (!user) return false;
+        state.currentUser = user;
+        // 同步游戏状态到全局 state（加载用户进度）
+        Object.keys(user.progress).forEach(loc => {
+            state[loc] = Object.assign({}, state[loc], user.progress[loc]);
+            if (!state[loc].logs) state[loc].logs = [];
+        });
+        user.lastActive = new Date().toISOString();
+        state.currentPage = 'panorama'; // 设置当前页面为全景
+        return true;
+    };
+
+    const logoutUser = () => {
+        state.currentUser = null;
+        state.currentPage = 'login';
+    };
+
+    const updateLocationProgress = (location, progress, currentStep) => {
+        if (!state[location]) return;
+        state[location].progress = progress;
+        state[location].currentStep = currentStep;
+        // 更新当前用户副本
+        if (state.currentUser) {
+            const u = state.users.find(x => x.id === state.currentUser.id);
+            if (u) {
+                u.progress[location] = {
+                    progress: state[location].progress,
+                    currentStep: state[location].currentStep,
+                    completed: !!state[location].completed
+                };
+                u.lastActive = new Date().toISOString();
+                // 计算总分：每个完成的地点计100分，否则取进度
+                u.totalScore = Object.values(u.progress).reduce((sum, loc) => sum + (loc.completed ? 100 : (loc.progress || 0)), 0);
+            }
+        }
+    };
+
+    const completeLocation = (location) => {
+        if (!state[location]) return;
+        state[location].completed = true;
+        state[location].progress = 100;
+        if (state.currentUser) {
+            const u = state.users.find(x => x.id === state.currentUser.id);
+            if (u) {
+                u.progress[location] = { progress: 100, currentStep: state[location].currentStep, completed: true };
+                u.lastActive = new Date().toISOString();
+                u.totalScore = Object.values(u.progress).reduce((sum, loc) => sum + (loc.completed ? 100 : (loc.progress || 0)), 0);
+            }
+        }
+    };
+
+    const addLogToLocation = (location, message, type='') => {
+        if (!state[location]) return;
+        const entry = { message, type, timestamp: new Date().toLocaleTimeString() };
+        if (!state[location].logs) state[location].logs = [];
+        state[location].logs.push(entry);
+
+        if (state.currentUser) {
+            const u = state.users.find(x => x.id === state.currentUser.id);
+            if (u && !u.progress[location].logs) u.progress[location].logs = [];
+            if (u && u.progress[location].logs) u.progress[location].logs.push(entry);
+        }
+    };
+
+    const resetLocation = (location) => {
+        if (!state[location]) return;
+        state[location] = { progress: 0, currentStep: 0, completed: false, logs: [] };
+        if (state.currentUser) {
+            const u = state.users.find(x => x.id === state.currentUser.id);
+            if (u) u.progress[location] = { progress: 0, currentStep: 0, completed: false };
+        }
+    };
+
+    const setCurrentPage = (page) => {
+        state.currentPage = page;
+    };
+
+    const toggleMusic = () => {
+        state.musicEnabled = !state.musicEnabled;
+        return state.musicEnabled;
+    };
+
+    const getRankings = computed(() => {
+        const sorted = [...state.users].sort((a,b) => (b.totalScore||0)-(a.totalScore||0));
+        return sorted.map((u, idx) => ({ ...u, rank: idx+1 }));
+    });
+
+    return {
+        state,
+        saveState,
+        loadState,
+        registerUser,
+        loginUser,
+        logoutUser,
+        updateLocationProgress,
+        completeLocation,
+        addLogToLocation,
+        resetLocation,
+        setCurrentPage,
+        toggleMusic,
+        getRankings
+    };
+}
+
+const gameState = createGameStateSingleton();
+// 不再加载任何保存的状态
+
+// ---------------- 地点探索逻辑 ----------------
+function createLocationExplorer(locationName) {
+    const steps = 3;
+    const currentStep = ref(gameState.state[locationName].currentStep || 0);
+    const isRunning = ref(false);
+    const logEntries = ref(gameState.state[locationName].logs ? [...gameState.state[locationName].logs] : []);
+
+    const loadProgress = () => {
+        currentStep.value = gameState.state[locationName].currentStep || 0;
+        logEntries.value = gameState.state[locationName].logs ? [...gameState.state[locationName].logs] : [];
+    };
+
+    const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    const performStep1 = async () => {
+        const map = {
+            library: "在古老的书架上找到了一本神秘的书籍...",
+            temple: "成功进入神庙，发现了一个古老的石碑...",
+            forest: "穿越浓雾，在森林深处发现了一条隐藏的小径...",
+            cave: "找到了洞穴入口，点燃火把准备进入..."
+        };
+        return map[locationName] || "进行了探索第一步";
+    };
+    const performStep2 = async () => {
+        const map = {
+            library: "破译了书籍中的古老文字，发现了宝藏线索...",
+            temple: "解开了石碑上的谜题，获得了神庙地图...",
+            forest: "沿着小径前进，避开危险区域，发现了一个神秘的符号...",
+            cave: "深入洞穴，在迷宫般的通道中找到了正确路径..."
+        };
+        return map[locationName] || "进行了探索第二步";
+    };
+    const performStep3 = async () => {
+        const map = {
+            library: "找到了隐藏的宝藏地图!地图指向迷雾森林...",
+            temple: "获得了神庙深处的神秘钥匙!钥匙可以打开某个宝箱...",
+            forest: "发现了指向隐藏洞穴的古老标记!",
+            cave: "在洞穴深处发现了传说中的宝藏宝箱!"
+        };
+        return map[locationName] || "完成了探索第三步";
+    };
+
+    const addLog = (message, type='') => {
+        const ts = new Date().toLocaleTimeString();
+        const entry = { message, type, timestamp: ts };
+        logEntries.value.push(entry);
+        if (!gameState.state[locationName].logs) gameState.state[locationName].logs = [];
+        gameState.state[locationName].logs.push(entry);
+        gameState.addLogToLocation(locationName, message, type);
+    };
+
+    const updateProgress = (step, message) => {
+        currentStep.value = step;
+        const percent = (step / steps) * 100;
+        gameState.updateLocationProgress(locationName, percent, step);
+        addLog(message);
+    };
+
+    const startExploration = async () => {
+        if (isRunning.value || gameState.state[locationName].completed) return;
+        isRunning.value = true;
+        try {
+            updateProgress(1, `开始探索${displayName()}...`);
+            await delay(1200);
+            const r1 = await performStep1();
+            addLog(r1, 'success');
+
+            updateProgress(2, `继续探索${displayName()}...`);
+            await delay(1400);
+            const r2 = await performStep2();
+            addLog(r2, 'success');
+
+            updateProgress(3, `完成${displayName()}探索...`);
+            await delay(1500);
+            const r3 = await performStep3();
+            addLog(r3, 'success');
+
+            gameState.completeLocation(locationName);
+            addLog(`地点 ${displayName()} 已完成！`, 'success');
+        } catch (e) {
+            addLog(`探索失败: ${e}`, 'error');
+        } finally {
+            isRunning.value = false;
+        }
+    };
+
+    const resetExploration = () => {
+        currentStep.value = 0;
+        logEntries.value = [];
+        gameState.resetLocation(locationName);
+    };
+
+    const displayName = () => {
+        const names = { library:'古老图书馆', temple:'神秘神庙', forest:'迷雾森林', cave:'隐藏洞穴' };
+        return names[locationName] || locationName;
+    };
+
+    const progressPercent = computed(() => (currentStep.value / steps) * 100);
+    const isCompleted = computed(() => !!gameState.state[locationName].completed);
+    const stepStatus = computed(() => {
+        const s = {};
+        for (let i=1;i<=steps;i++) s[i] = { active: i===currentStep.value, completed: i<currentStep.value };
+        return s;
+    });
+
+    loadProgress();
+
+    return { currentStep, isRunning, logEntries, startExploration, resetExploration, progressPercent, isCompleted, stepStatus, displayName };
+}
+
+// ---------------- 组件 ----------------
+const LoginPage = {
+    template: `
+        <div class="auth-page">
+            <div class="auth-container">
+                <h2 style="text-align:center;margin-bottom:12px;">登录寻宝游戏</h2>
+
+                <div v-if="gameState.state.users.length>0" class="user-list">
+                    <div v-for="user in gameState.state.users" :key="user.id" class="user-item" @click="loginAs(user.id)">
+                        <div>
+                            <div style="font-weight:700">{{ user.name }}</div>
+                            <div style="opacity:0.8;font-size:0.9rem;">等级: {{ user.level }}</div>
+                        </div>
+                        <div style="font-weight:700">{{ user.totalScore || 0 }}分</div>
+                    </div>
+                </div>
+                <div v-else style="text-align:center;padding:12px;">暂无用户，先注册一个吧</div>
+
+                <div style="margin-top:14px;">
+                    <button @click="switchToRegister" class="secondary">注册新用户</button>
+                </div>
+            </div>
+        </div>
+    `,
+    setup(props, { emit }) {
+        const loginAs = (id) => {
+            if (gameState.loginUser(id)) {
+                // 登录成功，不需要emit，因为状态已经更新
+            } else {
+                alert('登录失败');
+            }
+        };
+        
+        const switchToRegister = () => {
+            emit('switch-to-register');
+        };
+        
+        return {
+            gameState,
+            loginAs,
+            switchToRegister
+        };
+    }
+};
+
+const RegisterPage = {
+    template: `
+        <div class="auth-page">
+            <div class="auth-container">
+                <h2 style="text-align:center;margin-bottom:12px;">注册新用户</h2>
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                    <div><label>用户名</label><input v-model="name" placeholder="输入用户名"/></div>
+                    <div><label>选择等级</label><select v-model="level"><option>新手</option><option>冒险者</option><option>专家</option></select></div>
+                    <div style="display:flex;gap:8px;margin-top:8px;">
+                        <button @click="register">注册并登录</button>
+                        <button class="secondary" @click="switchToLogin">返回登录</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `,
+    setup(props, { emit }) {
+        const name = ref('');
+        const level = ref('新手');
+        const register = () => {
+            const trimmed = (name.value || '').trim();
+            if (!trimmed) { alert('请输入用户名'); return; }
+            const u = gameState.registerUser({ name: trimmed, level: level.value });
+            if (gameState.loginUser(u.id)) {
+                // 注册并登录成功，不需要emit，因为状态已经更新
+            }
+        };
+        
+        const switchToLogin = () => {
+            emit('switch-to-login');
+        };
+        
+        return { name, level, register, switchToLogin };
+    }
+};
+
+const LocationCard = {
+    props: ['location'],
+    template: `
+        <div class="location" @click="$emit('select', location.id)">
+            <div class="location-icon">{{ location.icon }}</div>
+            <div style="font-weight:700">{{ location.name }}</div>
+            <div style="opacity:0.85;margin-top:6px;">{{ location.description }}</div>
+        </div>
+    `
+};
+
+const PanoramaPage = {
+    template: `
+        <div>
+            <h2 style="text-align:center;margin-bottom:12px;">选择探索地点</h2>
+            <div class="panorama">
+                <LocationCard v-for="loc in locations" :key="loc.id" :location="loc" @select="$emit('select-location', $event)" />
+            </div>
+        </div>
+    `,
+    setup() {
+        const locations = ref([
+            { id:'library', name:'古老图书馆', icon:'📚', description:'寻找古老地图和线索' },
+            { id:'temple', name:'神秘神庙', icon:'🏛️', description:'解开古老谜题' },
+            { id:'forest', name:'迷雾森林', icon:'🌲', description:'穿越危险地带' },
+            { id:'cave', name:'隐藏洞穴', icon:'🕳️', description:'寻找最终宝藏' },
+        ]);
+        return { locations };
+    },
+    components: { LocationCard }
+};
+
+const ProgressBar = {
+    props: ['progress'],
+    template: `
+        <div style="margin:12px 0;">
+            <div class="progress-bar"><div class="progress" :style="{width: progress + '%'}"></div></div>
+            <div style="text-align:center;margin-top:6px;">{{ Math.round(progress) }}%</div>
+        </div>
+    `
+};
+
+const StepItem = {
+    props:['step','index','status'],
+    template:`
+        <div :class="['step', { 'active': status.active, 'completed': status.completed }]" style="display:flex;align-items:center;gap:10px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;">
+            <div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-weight:700">{{ index }}</div>
+            <div><div style="font-weight:700">{{ step.title }}</div><div style="opacity:0.8;font-size:0.9rem;">{{ step.description }}</div></div>
+        </div>
+    `
+};
+
+const ExplorationLog = {
+    props:['entries'],
+    template:`
+        <div class="log-container">
+            <div style="font-weight:700;margin-bottom:8px;">探索日志</div>
+            <div v-for="(e,idx) in entries" :key="idx" style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+                <strong>[{{ e.timestamp }}]</strong> {{ e.message }}
+            </div>
+        </div>
+    `
+};
+
+const LocationPage = {
+    props: ['locationId'],
+    template: `
+        <div>
+            <button class="back-btn" @click="$emit('back')">← 返回全景</button>
+            <div class="location-page">
+                <div style="text-align:center;">
+                    <div style="font-size:2.4rem;">{{ location.icon }}</div>
+                    <h2 style="margin:6px 0;">{{ location.name }}</h2>
+                    <p style="opacity:0.9">{{ location.description }}</p>
+                </div>
+
+                <ProgressBar :progress="progressPercent" />
+
+                <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;">
+                    <StepItem v-for="(step,idx) in steps" :key="idx" :step="step" :index="idx+1" :status="stepStatus[idx+1]" />
+                </div>
+
+                <div style="text-align:center;margin-top:14px;">
+                    <button @click="startExploration" :disabled="isRunning || isCompleted">{{ isCompleted ? '探索完成' : (isRunning ? '探索中...' : '开始探索') }}</button>
+                    <button class="secondary" @click="resetExploration" :disabled="isRunning" style="margin-left:8px;">重新开始</button>
+                </div>
+
+                <ExplorationLog :entries="logEntries" />
+
+                <div v-if="isCompleted && locationId==='cave'" style="margin-top:12px;text-align:center;background:rgba(255,215,0,0.12);padding:12px;border-radius:10px;">
+                    <div style="font-size:2rem;">💎</div>
+                    <h3>恭喜！你找到了最终宝藏！</h3>
+                </div>
+            </div>
+        </div>
+    `,
+    setup(props) {
+        const explorer = createLocationExplorer(props.locationId);
+
+        const location = {
+            library: { name: "古老图书馆", icon: "📚", description: "在尘封的书籍中寻找宝藏线索" },
+            temple: { name: "神秘神庙", icon: "🏛️", description: "解开古老谜题，寻找宝藏线索" },
+            forest: { name: "迷雾森林", icon: "🌲", description: "穿越危险地带，寻找隐藏的路径" },
+            cave: { name: "隐藏洞穴", icon: "🕳️", description: "深入地下洞穴，寻找最终宝藏" }
+        };
+
+        const steps = {
+            library: [
+                { title: "搜索书架", description: "在古老的书架上寻找线索..." },
+                { title: "解读古籍", description: "破译古老文字..." },
+                { title: "找到地图", description: "发现隐藏的宝藏地图..." }
+            ],
+            temple: [
+                { title: "进入神庙", description: "寻找神庙入口..." },
+                { title: "解开谜题", description: "破解古老机关..." },
+                { title: "获得钥匙", description: "找到神庙深处的钥匙..." }
+            ],
+            forest: [
+                { title: "进入森林", description: "穿越浓密的迷雾..." },
+                { title: "寻找路径", description: "在迷雾中寻找正确方向..." },
+                { title: "发现标记", description: "找到古老的指引标记..." }
+            ],
+            cave: [
+                { title: "进入洞穴", description: "深入黑暗的洞穴..." },
+                { title: "穿越通道", description: "在迷宫般的通道中前进..." },
+                { title: "发现宝藏", description: "找到传说中的宝藏..." }
+            ]
+        };
+
+        return {
+            ...explorer,
+            location: location[props.locationId],
+            steps: steps[props.locationId],
+            locationId: props.locationId
+        };
+    },
+    components: { ProgressBar, StepItem, ExplorationLog }
+};
+
+const UserProfile = {
+    template: `
+        <div class="user-profile">
+            <h2>用户信息</h2>
+            <div v-if="gameState.state.currentUser" style="margin-top:8px;">
+                <h3>当前用户: {{ gameState.state.currentUser.name }}</h3>
+                <p>等级: {{ gameState.state.currentUser.level }}</p>
+                <p>加入时间: {{ new Date(gameState.state.currentUser.joinDate).toLocaleDateString() }}</p>
+                <div style="margin-top:8px;">
+                    <button class="secondary" @click="logout">退出登录</button>
+                </div>
+            </div>
+
+            <div v-if="gameState.state.currentUser" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:12px;">
+                <div style="background:rgba(255,255,255,0.03);padding:10px;border-radius:8px;text-align:center;">
+                    <div style="font-size:0.9rem;">完成地点</div>
+                    <div style="font-weight:700;font-size:1.4rem;">{{ completed }}/4</div>
+                </div>
+                <div style="background:rgba(255,255,255,0.03);padding:10px;border-radius:8px;text-align:center;">
+                    <div style="font-size:0.9rem;">总进度</div>
+                    <div style="font-weight:700;font-size:1.4rem;">{{ Math.round(totalProgress) }}%</div>
+                </div>
+                <div style="background:rgba(255,255,255,0.03);padding:10px;border-radius:8px;text-align:center;">
+                    <div style="font-size:0.9rem;">总分</div>
+                    <div style="font-weight:700;font-size:1.4rem;">{{ gameState.state.currentUser.totalScore || 0 }}</div>
+                </div>
+            </div>
+
+            <div v-if="gameState.state.currentUser" style="margin-top:12px;">
+                <h3>地点进度</h3>
+                <div v-for="(loc,key) in progress" :key="key" style="display:flex;align-items:center;gap:10px;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px;margin-top:8px;">
+                    <div style="font-weight:700;min-width:80px;">{{ names[key] }}</div>
+                    <div style="flex:1;height:10px;background:rgba(255,255,255,0.12);border-radius:6px;overflow:hidden;">
+                        <div :style="{width: (loc.progress||0) + '%', height:'100%', background:'linear-gradient(90deg,#ff8a00,#e52e71)'}"></div>
+                    </div>
+                    <div style="min-width:40px;text-align:right;">{{ Math.round(loc.progress||0) }}%</div>
+                </div>
+            </div>
+        </div>
+    `,
+    setup() {
+        const logout = () => { gameState.logoutUser(); };
+        const progress = computed(() => gameState.state.currentUser ? gameState.state.currentUser.progress : {});
+        const completed = computed(() => {
+            if (!gameState.state.currentUser) return 0;
+            return Object.values(gameState.state.currentUser.progress).filter(p => p.completed).length;
+        });
+        const totalProgress = computed(() => {
+            if (!gameState.state.currentUser) return 0;
+            const sum = Object.values(gameState.state.currentUser.progress).reduce((s,p)=>s+(p.progress||0),0);
+            return sum / 4;
+        });
+        const names = { library:'古老图书馆', temple:'神秘神庙', forest:'迷雾森林', cave:'隐藏洞穴' };
+
+        return { gameState, logout, progress, completed, totalProgress, names };
+    }
+};
+
+const RankingPage = {
+    template: `
+        <div class="ranking-page">
+            <h2>排行榜</h2>
+            <p>看看谁是最厉害的宝藏猎人！</p>
+            <table class="ranking-table">
+                <thead><tr><th>排名</th><th>玩家</th><th>等级</th><th>完成地点</th><th>总分</th><th>最后活跃</th></tr></thead>
+                <tbody>
+                    <tr v-for="user in rankings" :key="user.id" :class="{ 'current-user-highlight': isCurrent(user) }">
+                        <td><span class="rank-badge">{{ user.rank }}</span></td>
+                        <td>{{ user.name }}</td>
+                        <td>{{ user.level }}</td>
+                        <td>{{ Object.values(user.progress).filter(p=>p.completed).length }}/4</td>
+                        <td>{{ user.totalScore || 0 }}</td>
+                        <td>{{ user.lastActive ? new Date(user.lastActive).toLocaleDateString() : '-' }}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div v-if="rankings.length===0" style="text-align:center;margin-top:12px;">暂无排行榜数据</div>
+        </div>
+    `,
+    setup() {
+        const rankings = gameState.getRankings;
+        const isCurrent = (u) => gameState.state.currentUser && u.id === gameState.state.currentUser.id;
+        return { rankings, isCurrent };
+    }
+};
+
+// ---------------- 主应用 ----------------
+const App = {
+    template: `
+    <div class="container">
+        <header>
+            <h1>寻宝游戏</h1>
+            <p class="subtitle">打开页面后先注册或登录，然后开始探索！</p>
+        </header>
+
+        <LoginPage v-if="currentView === 'login'" @switch-to-register="switchToRegister" />
+        <RegisterPage v-else-if="currentView === 'register'" @switch-to-login="switchToLogin" />
+
+        <template v-else-if="gameState.state.currentUser">
+            <div class="nav-tabs">
+                <div class="nav-tab" :class="{active: currentView==='panorama'}" @click="setView('panorama')">全景</div>
+                <div class="nav-tab" :class="{active: currentView==='profile'}" @click="setView('profile')">用户信息</div>
+                <div class="nav-tab" :class="{active: currentView==='ranking'}" @click="setView('ranking')">排行榜</div>
+            </div>
+
+            <PanoramaPage v-if="currentView==='panorama'" @select-location="goToLocation" />
+            <LocationPage v-else-if="currentView==='location'" :location-id="selectedLocation" @back="toPanorama" />
+            <UserProfile v-else-if="currentView==='profile'" />
+            <RankingPage v-else-if="currentView==='ranking'" />
+        </template>
+
+        <div class="music-control" @click="toggleMusic" title="音乐开关"><span>{{ musicEnabled ? '🔊' : '🔇' }}</span></div>
+    </div>
+    `,
+    components: { LoginPage, RegisterPage, PanoramaPage, LocationPage, UserProfile, RankingPage },
+    setup() {
+        const selectedLocation = ref(null);
+        const musicEnabled = ref(gameState.state.musicEnabled || false);
+        const currentAudioElement = ref(null);
+
+        // 使用计算属性来响应式地获取当前页面
+        const currentView = computed(() => {
+            if (!gameState.state.currentUser) {
+                return gameState.state.currentPage || 'login';
+            }
+            return gameState.state.currentPage || 'panorama';
+        });
+        
+        // 根据当前页面切换背景音乐
+        const updateBackgroundMusic = () => {
+            // 停止所有音乐
+            const allAudioElements = [
+                document.getElementById('homeMusic'),
+                document.getElementById('libraryMusic'),
+                document.getElementById('templeMusic'),
+                document.getElementById('forestMusic'),
+                document.getElementById('caveMusic')
+            ];
+            
+            allAudioElements.forEach(audio => {
+                if (audio) {
+                    audio.pause();
+                    audio.currentTime = 0;
+                }
+            });
+            
+            // 根据当前页面选择对应的音乐
+            let audioId = 'homeMusic'; // 默认首页音乐
+            
+            if (currentView.value === 'location' && selectedLocation.value) {
+                // 根据地点选择音乐
+                audioId = selectedLocation.value + 'Music';
+            }
+            // 其他页面（login, register, panorama, profile, ranking）都使用首页音乐
+            
+            currentAudioElement.value = document.getElementById(audioId);
+            
+            if (currentAudioElement.value && musicEnabled.value) {
+                currentAudioElement.value.volume = 0.5;
+                currentAudioElement.value.play().catch(e => {
+                    console.log('音乐播放失败:', e);
+                });
+            }
+        };
+        
+        const setView = (v) => { 
+            gameState.setCurrentPage(v);
+            updateBackgroundMusic();
+        };
+        
+        const goToLocation = (locId) => { 
+            selectedLocation.value = locId; 
+            gameState.setCurrentPage('location');
+            updateBackgroundMusic();
+        };
+        
+        const toPanorama = () => { 
+            selectedLocation.value = null; 
+            gameState.setCurrentPage('panorama');
+            updateBackgroundMusic();
+        };
+
+        const switchToRegister = () => { 
+            gameState.setCurrentPage('register');
+            updateBackgroundMusic();
+        };
+        
+        const switchToLogin = () => { 
+            gameState.setCurrentPage('login');
+            updateBackgroundMusic();
+        };
+
+        const toggleMusic = () => {
+            musicEnabled.value = !musicEnabled.value;
+            gameState.toggleMusic();
+            
+            // 控制音乐播放
+            if (currentAudioElement.value) {
+                if (musicEnabled.value) {
+                    currentAudioElement.value.play().catch(e => {
+                        console.log('音乐播放失败:', e);
+                    });
+                } else {
+                    currentAudioElement.value.pause();
+                }
+            }
+        };
+
+        onMounted(() => {
+            // 不再加载任何保存的状态
+            
+            // 初始化所有音频元素
+            const allAudioElements = [
+                document.getElementById('homeMusic'),
+                document.getElementById('libraryMusic'),
+                document.getElementById('templeMusic'),
+                document.getElementById('forestMusic'),
+                document.getElementById('caveMusic')
+            ];
+            
+            allAudioElements.forEach(audio => {
+                if (audio) {
+                    audio.volume = 0.5;
+                }
+            });
+            
+            // 设置初始音乐
+            updateBackgroundMusic();
+        });
+
+        return { 
+            currentView,
+            selectedLocation, 
+            setView, 
+            goToLocation, 
+            toPanorama, 
+            switchToRegister, 
+            switchToLogin, 
+            musicEnabled, 
+            toggleMusic, 
+            gameState 
+        };
+    }
+};
+
+createApp(App).mount('#app');
+</script>
+</body>
+</html>
